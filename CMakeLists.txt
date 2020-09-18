@@ -30,7 +30,6 @@ find_package(catkin REQUIRED COMPONENTS
     usfs_inference
     cv_bridge
     image_transport
-    image_geometry
     pcl_ros
     )
 
