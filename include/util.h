@@ -8,11 +8,19 @@
 #include <Eigen/Geometry>
 #include <Eigen/LU>
 
+#include <pcl/filters/filter.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/statistical_outlier_removal.h>  //统计滤波器头文件
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_cloud.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/segmentation/extract_clusters.h>
+
 #include <ros/package.h>
 #include <ros/ros.h>
 #include <opencv2/core/core.hpp>
+
+#include <visualization_msgs/Marker.h>
 
 const float PI = 3.1415926535;
 using namespace Eigen;
@@ -51,14 +59,65 @@ struct ConfigSetting
   double k1, k2, k3, p1, p2;
   string pkg_loc;
   float prob_threshold;
+  int filter_pt_num;
+  float filter_std;
+  string detection_mode;
+  float filter_distance_min, filter_distance_max;
+  float cluster_tolerance, cluster_size_min, cluster_size_max;
+  float points_number_max, points_number_min, points_number_distance_coeff;
 
   void print()
   {
     cout << "Extrinsic matrix: \n" << extrinsic_matrix << endl;
     cout << "Camera matrix: \n" << camera_matrix << endl;
     cout << "Distortion coeff: \n" << k1 << " " << k2 << " " << k3 << " " << p1 << " " << p2 << endl;
+    cout << "prob_threshold: " << prob_threshold << endl;
+    cout << "filter_pt_num: " << filter_pt_num << endl;
+    cout << "filter_std: " << filter_std << endl;
+    cout << "detection_mode: " << detection_mode << endl;
+    cout << "filter_distance_min: " << filter_distance_min << endl;
+    cout << "filter_distance_max: " << filter_distance_max << endl;
+    cout << "cluster_tolerance: " << cluster_tolerance << endl;
+    cout << "cluster_size_min: " << cluster_size_min << endl;
+    cout << "cluster_size_max: " << cluster_size_max << endl;
+    cout << "points_number_max: " << points_number_max << endl;
+    cout << "points_number_min: " << points_number_min << endl;
+    cout << "points_number_distance_coeff: " << points_number_distance_coeff << endl;
   }
 } config;
+
+struct objectType
+{
+  int id = -1;
+  float x, y, z;
+  float angle, distance;
+  int type = -1;
+  float type_reliability;
+  int target_pcl_num = -1;
+  int color = -1;
+  float color_reliability;
+  vector<float> lidar_box;
+
+  void coordinate_transform()
+  {
+    distance = sqrt(x * x + y * y);
+    angle = float(atan2(y, x)) * 180 / M_PI;  // in degree
+  }
+
+  void print()
+  {
+    cout << "id " << id << endl;
+    cout << "x: " << x << ", y: " << y << ", z: " << z << endl;
+    cout << "angle: " << angle << ", distance: " << distance << endl;
+    cout << "type: " << type << endl;
+    cout << "type_reliability: " << type_reliability << endl;
+    cout << "target_pcl_num: " << target_pcl_num << endl;
+    cout << "color: " << color << endl;
+    cout << "color_reliability: " << color_reliability << endl;
+    cout << "lidar_box_x: " << lidar_box[0] << ", lidar_box_y: " << lidar_box[1] << ", lidar_box_z: " << lidar_box[2]
+         << endl;
+  }
+};
 
 struct timer
 {
@@ -95,15 +154,29 @@ void readConfig()
   infile >> config.k3;
 
   infile.close();
-  config.print();
 }
 
 void loadConfig(ros::NodeHandle n)
 {
-  n.getParam("/prob_threshold", config.prob_threshold);
+  n.getParam("/detection/prob_threshold", config.prob_threshold);
+  n.getParam("/filter/filter_pt_num", config.filter_pt_num);
+  n.getParam("/filter/filter_std", config.filter_std);
+  n.getParam("/detector/mode", config.detection_mode);
+  n.getParam("/filter/filter_distance_max", config.filter_distance_max);
+  n.getParam("/filter/filter_distance_min", config.filter_distance_min);
+
+  n.getParam("/cluster/cluster_tolerance", config.cluster_tolerance);
+  n.getParam("/cluster/cluster_size_min", config.cluster_size_min);
+  n.getParam("/cluster/cluster_size_max", config.cluster_size_max);
+
+  n.getParam("/detection/points_number_max", config.points_number_max);
+  n.getParam("/detection/points_number_min", config.points_number_min);
+  n.getParam("/detection/points_number_distance_coeff", config.points_number_distance_coeff);
+  config.print();
 }
 
-void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::Rect> boxs, vector<int> &points_count)
+void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::Rect> boxs, vector<int> &points_count,
+                  vector<visualization_msgs::Marker> &markers)
 {
   Eigen::Vector4f p;
   float fx, fy, cx, cy;
@@ -112,7 +185,11 @@ void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::
   cx = config.camera_matrix(0, 2);
   cy = config.camera_matrix(1, 2);
 
+  points_count.resize(boxs.size());
   // initialize counts
+
+  vector<pcl::PointCloud<pcl::PointXYZI>> point_cloud_each_object;
+  point_cloud_each_object.resize(boxs.size());
   for (auto &psc : points_count)
     psc = 0;
 
@@ -122,16 +199,193 @@ void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::
     p(0) = pt->x;
     p(1) = pt->y;
     p(2) = pt->z;
+    p = config.extrinsic_matrix * p;
+    // ROS_INFO_STREAM("x:" << p(0));
+    // ROS_INFO_STREAM("y:" << p(1));
+    // ROS_INFO_STREAM("z:" << p(2));
     if (p(2) == 0)
       continue;
 
     int x = int(p(0) / p(2) * fx + cx);
     int y = int(p(1) / p(2) * fy + cy);
-    for (int i = 0; i < boxs.size(); i++)
+    for (uint i = 0; i < boxs.size(); i++)
     {
+      // ROS_INFO_STREAM("x:" << x);
+      // ROS_INFO_STREAM("y:" << y);
       if (x > boxs[i].x && x < (boxs[i].x + boxs[i].width) && y > boxs[i].y && y < (boxs[i].y + boxs[i].height))
+      {
         points_count[i]++;
+        point_cloud_each_object[i].push_back(*pt);
+      }
     }
+  }
+
+  if (point_cloud_each_object.size() == 0)
+    return;
+  // filter
+  pcl::StatisticalOutlierRemoval<pcl::PointXYZI> statisticalFilter;
+  statisticalFilter.setStddevMulThresh(config.filter_std);
+  statisticalFilter.setKeepOrganized(true);
+  ROS_INFO("Start point cloud filtering!");
+  for (uint i = 0; i < point_cloud_each_object.size(); i++)
+  {
+    statisticalFilter.setInputCloud(point_cloud_each_object[i].makeShared());
+    statisticalFilter.filter(point_cloud_each_object[i]);
+  }
+
+  markers.resize(point_cloud_each_object.size());
+  ROS_INFO("Start point cloud averaging!");
+  for (uint i = 0; i < point_cloud_each_object.size(); i++)
+  {
+    float x, y, z;
+    x = 0;
+    y = 0;
+    z = 0;
+
+    markers[i].header.frame_id = "/livox_frame";
+    markers[i].header.stamp = ros::Time::now();
+    markers[i].ns = "points_and_lines";
+    markers[i].action = visualization_msgs::Marker::ADD;
+    markers[i].pose.orientation.w = 1.0;
+    markers[i].scale.x = 0.2;
+    markers[i].scale.y = 0.2;
+    markers[i].color.r = 1.0;
+    markers[i].color.a = 1.0;
+    markers[i].color.g = 0.0;
+    markers[i].color.b = 0.0;
+    markers[i].type = visualization_msgs::Marker::POINTS;
+
+    int pt_num = 0;
+    for (pcl::PointCloud<pcl::PointXYZI>::iterator pt = point_cloud.points.begin(); pt < point_cloud.points.end(); pt++)
+    {
+      x += pt->x;
+      y += pt->y;
+      z += pt->z;
+      pt_num++;
+    }
+    geometry_msgs::Point p;
+    p.x = x / pt_num;
+    p.y = y / pt_num;
+    p.z = z / pt_num;
+    markers[i].points.push_back(p);
+  }
+}
+
+void pointCloudClustering(pcl::PointCloud<pcl::PointXYZI> point_cloud, vector<int> &points_count,
+                          vector<visualization_msgs::Marker> &markers, vector<vector<float>> &lidar_box)
+{
+  // filter
+  pcl::PassThrough<pcl::PointXYZI> pass;
+  pcl::PointCloud<pcl::PointXYZI> cloud_filtered_pre, cloud_filtered;
+  pass.setInputCloud(point_cloud.makeShared());  //设置输入点云
+  pass.setFilterFieldName("x");                  //设置过滤时所需要点云类型的Z字段
+  pass.setFilterLimits(config.filter_distance_min, config.filter_distance_max);  //设置在过滤字段的范围
+  pass.setFilterLimitsNegative(false);  //设置保留范围内还是过滤掉范围内
+  pass.filter(cloud_filtered_pre);      //执行滤波，保存过滤结果在cloud_filtered
+  if (cloud_filtered_pre.size() == 0)
+    return;
+
+  pcl::StatisticalOutlierRemoval<pcl::PointXYZI> statisticalFilter;  // TODO change name
+  statisticalFilter.setStddevMulThresh(config.filter_std);
+  statisticalFilter.setMeanK(config.filter_pt_num);
+  // statisticalFilter.setKeepOrganized(true);
+  statisticalFilter.setInputCloud(cloud_filtered_pre.makeShared());
+  statisticalFilter.filter(cloud_filtered);
+
+  if (cloud_filtered.size() == 0)
+    return;
+  // clustering
+  pcl::search::KdTree<pcl::PointXYZI>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZI>);
+  tree->setInputCloud(cloud_filtered.makeShared());  //创建点云索引向量，用于存储实际的点云信息
+  vector<pcl::PointIndices> cluster_indices;
+  pcl::EuclideanClusterExtraction<pcl::PointXYZI> ec;
+  ec.setClusterTolerance(config.cluster_tolerance);  //设置近邻搜索的搜索半径为2cm
+  ec.setMinClusterSize(config.cluster_size_min);     //设置一个聚类需要的最少点数目为100
+  ec.setMaxClusterSize(config.cluster_size_max);     //设置一个聚类需要的最大点数目为25000
+  ec.setSearchMethod(tree);                          //设置点云的搜索机制
+  ec.setInputCloud(cloud_filtered.makeShared());
+  ec.extract(cluster_indices);  //从点云中提取聚类，并将点云索引保存在cluster_indices中
+
+  vector<pcl::PointCloud<pcl::PointXYZI>> cloud_clustered;
+  for (vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+  {
+    pcl::PointCloud<pcl::PointXYZI> cloud_cluster;
+    //创建新的点云数据集cloud_cluster，将所有当前聚类写入到点云数据集中
+    for (std::vector<int>::const_iterator pit = it->indices.begin(); pit != it->indices.end(); ++pit)
+    {
+      cloud_cluster.points.push_back(cloud_filtered.points[*pit]);
+      cloud_cluster.width = cloud_cluster.size();
+      cloud_cluster.height = 1;
+      cloud_cluster.is_dense = true;
+    }
+    cloud_clustered.push_back(cloud_cluster);
+    points_count.push_back(cloud_cluster.size());
+  }
+
+  markers.resize(cloud_clustered.size());
+  for (uint i = 0; i < cloud_clustered.size(); i++)
+  {
+    markers[i].header.frame_id = "/livox_frame";
+    markers[i].header.stamp = ros::Time::now();
+    markers[i].ns = "points_and_lines";
+    markers[i].action = visualization_msgs::Marker::ADD;
+    markers[i].pose.orientation.w = 1.0;
+    markers[i].scale.x = 0.2;
+    markers[i].scale.y = 0.2;
+    markers[i].color.r = 1.0;
+    markers[i].color.a = 1.0;
+    markers[i].color.g = 0.0;
+    markers[i].color.b = 0.0;
+    markers[i].type = visualization_msgs::Marker::POINTS;
+
+    int pt_num = 0;
+    float x, y, z;
+    x = 0;
+    y = 0;
+    z = 0;
+    float x_min, x_max, y_min, y_max, z_min, z_max;
+    for (pcl::PointCloud<pcl::PointXYZI>::iterator pt = cloud_clustered[i].points.begin();
+         pt < cloud_clustered[i].points.end(); pt++)
+    {
+      if (pt_num == 0)
+      {
+        x_min = pt->x;
+        x_max = pt->x;
+        y_min = pt->y;
+        y_max = pt->y;
+        z_min = pt->z;
+        z_max = pt->z;
+      }
+      else
+      {
+        if (pt->x < x_min)
+          x_min = pt->x;
+        if (pt->x > x_max)
+          x_max = pt->x;
+        if (pt->y < y_min)
+          y_min = pt->y;
+        if (pt->y > y_max)
+          y_max = pt->y;
+        if (pt->z < z_min)
+          z_min = pt->z;
+        if (pt->z > z_max)
+          z_max = pt->z;
+      }
+      x += pt->x;
+      y += pt->y;
+      z += pt->z;
+      pt_num++;
+    }
+    geometry_msgs::Point p;
+    p.x = x / pt_num;
+    p.y = y / pt_num;
+    p.z = z / pt_num;
+    vector<float> lidar_box_tmp;
+    lidar_box_tmp.push_back(x_max - x_min);
+    lidar_box_tmp.push_back(y_max - y_min);
+    lidar_box_tmp.push_back(z_max - z_min);
+    lidar_box.push_back(lidar_box_tmp);
+    markers[i].points.push_back(p);
   }
 }
 

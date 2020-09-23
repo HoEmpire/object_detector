@@ -1,0 +1,23 @@
+data_topic:
+  lidar_topic: /livox/lidar
+  camera_topic: /camera_array/cam0/image_raw
+
+detection:
+  prob_threshold: 0.5
+  points_number_max: 5000
+  points_number_min: 100
+  points_number_distance_coeff: 2.0
+
+filter:
+  filter_pt_num: 20
+  filter_std: 0.5
+  filter_distance_max: 600.0
+  filter_distance_min: 1.0
+
+detector:
+  mode: "lidar_first"
+
+cluster:
+  cluster_tolerance: 1.0
+  cluster_size_min: 10
+  cluster_size_max: 5000
