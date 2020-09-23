@@ -153,7 +153,7 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
           if (result.type == 0)  // TODO update here later
           {
             object_info.type = result.type;
-            object_info.type = result.prob;
+            object_info.type_reliability = result.prob;
             usfs::inference::ColorDetectionResult color_result;
             std::shared_ptr<usfs::inference::HsvColorClassifier> color_classifier;
             color_classifier->Classify(image_undistorted, color_result, result);
