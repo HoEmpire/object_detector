@@ -21,13 +21,14 @@ find_package(OpenCV 4 REQUIRED)
 catkin_package(
     # INCLUDE_DIRS include
     LIBRARIES ${PROJECT_NAME}
-    CATKIN_DEPENDS roscpp usfs_common usfs_inference
+    CATKIN_DEPENDS roscpp usfs_common usfs_inference usfs_bridge
     DEPENDS)
 find_package(catkin REQUIRED COMPONENTS
     std_msgs
     roscpp
     usfs_common
     usfs_inference
+    usfs_bridge
     cv_bridge
     image_transport
     pcl_ros

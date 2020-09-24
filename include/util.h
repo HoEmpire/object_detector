@@ -431,3 +431,9 @@ void undistortImage(const cv::Mat image_distorted, cv::Mat &image_undistorted)
     }
   }
 }
+
+void transformMarkerCoordinate(visualization_msgs::Marker &marker, float yaw)
+{
+  marker.points[0].x = marker.points[0].x * cos(yaw / 180 * M_PI) - marker.points[0].y * sin(yaw / 180 * M_PI);
+  marker.points[0].y = marker.points[0].x * sin(yaw / 180 * M_PI) + marker.points[0].y * cos(yaw / 180 * M_PI);
+}
