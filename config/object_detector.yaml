@@ -5,19 +5,19 @@ data_topic:
 detection:
   prob_threshold: 0.5
   points_number_max: 5000
-  points_number_min: 100
+  points_number_min: 10
   points_number_distance_coeff: 2.0
 
 filter:
-  filter_pt_num: 20
-  filter_std: 0.5
-  filter_distance_max: 600.0
+  filter_pt_num: 30
+  filter_std: 0.3
+  filter_distance_max: 6.0
   filter_distance_min: 1.0
 
 detector:
   mode: "lidar_first"
 
 cluster:
-  cluster_tolerance: 1.0
+  cluster_tolerance: 0.1
   cluster_size_min: 10
   cluster_size_max: 5000

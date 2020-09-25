@@ -10,7 +10,9 @@
     <build_depend>roscpp</build_depend>
     <build_depend>usfs_common</build_depend>
     <build_depend>usfs_inference</build_depend>
+    <build_depend>usfs_bridge</build_depend>
     <exec_depend>roscpp</exec_depend>
     <exec_depend>usfs_common</exec_depend>
     <exec_depend>usfs_inference</exec_depend>
+    <exec_depend>usfs_bridge</exec_depend>
 </package>

@@ -28,9 +28,15 @@ using namespace Eigen;
 
 usfs::inference::YoloObjectDetector detector;
 float platform_yaw = 0.0;
+// class LCDetector
+// {
 
+// };
+
+// void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img,
+//               ros::Publisher marker_pub, usfs::bridge::LidarCameraReporter reporter)
 void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img,
-              const ros::Publisher marker_pub, const usfs::bridge::LidarCameraReporter reporter)
+              ros::Publisher marker_pub)
 {
   static int id = 0;
   pcl::PointCloud<pcl::PointXYZI> point_cloud_livox;
@@ -86,11 +92,11 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
       {
         points_count_tmp.push_back(points_count[i]);
         markers_tmp.push_back(markers[i]);
-        // ROS_INFO_STREAM("Found an interesting 3d target!");
-        // ROS_INFO_STREAM("Points number: " << points_count[i]);
-        // ROS_INFO_STREAM("Target distance: " << r);
-        // ROS_INFO_STREAM("Target position: " << markers[i].points[0].x << ", " << markers[i].points[0].y << ", "
-        //                                     << markers[i].points[0].z);
+        ROS_INFO_STREAM("Found an interesting 3d target!");
+        ROS_INFO_STREAM("Points number: " << points_count[i]);
+        ROS_INFO_STREAM("Target distance: " << r);
+        ROS_INFO_STREAM("Target position: " << markers[i].points[0].x << ", " << markers[i].points[0].y << ", "
+                                            << markers[i].points[0].z);
       }
     }
     if (points_count_tmp.size() == 0)
@@ -170,9 +176,10 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
             object_info.color_reliability = 0.0;
           }
           object_info.print();
-          reporter.publish(ros::Time::now(), object_info.id, object_info.distance, object_info.angle, object_info.type,
-                           object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-                           object_info.color_reliability, object_info.lidar_box);
+          // reporter.publish(ros::Time::now(), object_info.id, object_info.distance, object_info.angle,
+          // object_info.type,
+          //                  object_info.type_reliability, object_info.target_pcl_num, object_info.color,
+          //                  object_info.color_reliability, object_info.lidar_box);
         }
       }
     }
@@ -181,7 +188,7 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
 
 void platformCallBack(const std_msgs::Float32 &yaw)
 {
-  platform_yaw = yaw;
+  platform_yaw = yaw.data;
 }
 
 int main(int argc, char **argv)
@@ -210,8 +217,8 @@ int main(int argc, char **argv)
   config_cam.max_height = 1080;
   detector.Init(config_cam);
 
-  usfs::bridge::LidarCameraReporter reporter(n);
-  reporter.Init();
+  // usfs::bridge::LidarCameraReporter reporter(&n);
+  // reporter.Init();
 
   ros::Subscriber platform_yaw_sub = n.subscribe("/platform_driver/platform_yaw", 10, &platformCallBack);
   message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(n, lidar_topic, 1);
@@ -219,7 +226,8 @@ int main(int argc, char **argv)
 
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, sensor_msgs::Image> MySyncPolicy;
   message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), cloud_sub, camera_sub);
-  sync.registerCallback(boost::bind(&callback, _1, _2, marker_pub, reporter));
+  // sync.registerCallback(boost::bind(&callback, _1, _2, marker_pub, reporter));
+  sync.registerCallback(boost::bind(&callback, _1, _2, marker_pub));
   ros::spin();
 
   return EXIT_SUCCESS;
