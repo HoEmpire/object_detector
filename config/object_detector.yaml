@@ -1,12 +1,12 @@
 data_topic:
   lidar_topic: /livox/lidar
-  camera_topic: /camera_array/cam0/image_raw
+  camera_topic: /pointgrey/image_color
 
 detection:
-  prob_threshold: 0.5
   points_number_max: 5000
   points_number_min: 10
   points_number_distance_coeff: 2.0
+  mode: "lidar_first"
 
 filter:
   filter_pt_num: 30
@@ -14,10 +14,23 @@ filter:
   filter_distance_max: 6.0
   filter_distance_min: 1.0
 
-detector:
-  mode: "lidar_first"
-
 cluster:
   cluster_tolerance: 0.1
   cluster_size_min: 10
   cluster_size_max: 5000
+
+cam:
+  cam_net_type: "YOLOV4_TINY"
+  cam_file_model_cfg: "/asset/yolov4-tiny.cfg"
+  cam_file_model_weights: "/asset/yolov4-tiny.weights"
+  cam_inference_precison: "FP16"
+  cam_n_max_batch: 1
+  cam_prob_threshold: 0.5
+  cam_min_width: 0
+  cam_max_width: 1440
+  cam_min_height: 0
+  cam_max_height: 1080
+
+extrinsic_parameter:
+  translation: [0.0, 0.0, 0.0]
+  rotation: [0.0, 0.0, 0.0]

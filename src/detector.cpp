@@ -1,3 +1,4 @@
+#include <string.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <ros/ros.h>
@@ -5,6 +6,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/image_encodings.h>
 #include <std_msgs/Float32.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/UInt16.h>
 #include <fstream>
 
@@ -19,32 +21,84 @@
 #include <pcl_ros/point_cloud.h>
 
 #include "usfs_bridge/reporter/lidar_camera_reporter.h"
-#include "usfs_inference/component/object_detection_component.h"
-#include "usfs_inference/detector/yolo_object_detector.h"
-#include "util.h"
+#include "object_detector/util.h"
+
+#define DEFINE_WAMP 0
 
 using namespace std;
 using namespace Eigen;
 
-usfs::inference::YoloObjectDetector detector;
 float platform_yaw = 0.0;
-// class LCDetector
-// {
-
-// };
-
-// void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img,
-//               ros::Publisher marker_pub, usfs::bridge::LidarCameraReporter reporter)
-void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img,
-              ros::Publisher marker_pub)
+class LCDetector
 {
-  static int id = 0;
-  pcl::PointCloud<pcl::PointXYZI> point_cloud_livox;
+public:
+  LCDetector(ros::NodeHandle *nh);
+  void detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img);
+  void platform_callback(const std_msgs::Float32MultiArray &rotation);
+  float platform_roll, platform_pitch, platform_yaw;
+
+private:
+  ros::NodeHandle *nh_;
+  usfs::inference::YoloObjectDetector detector;
+  ros::Publisher marker_pub;
+  ros::Subscriber platform_yaw_sub;
+  message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub;
+  message_filters::Subscriber<sensor_msgs::Image> camera_sub;
+
+  ros::Publisher pcl_filter_debug;
+  ros::Publisher cam_detection_debug;
+
+#if DEFINE_WAMP
+  usfs::bridge::LidarCameraReporter *reporter;
+#endif
+};
+
+LCDetector::LCDetector(ros::NodeHandle *nh)
+{
+  nh_ = nh;
+  // detector
+  Config config_cam;
+  std::string package_path = ros::package::getPath("usfs_inference");
+  config_cam.net_type = config.net_type_table[config.cam_net_type];
+  config_cam.file_model_cfg = package_path + config.cam_file_model_cfg;
+  config_cam.file_model_weights = package_path + config.cam_file_model_weights;
+  config_cam.inference_precison = config.precision_table[config.cam_inference_precison]; // use FP16 for Jetson Xavier NX
+  config_cam.n_max_batch = config.cam_n_max_batch;
+  config_cam.detect_thresh = config.cam_prob_threshold;
+  config_cam.min_width = config.cam_min_width;
+  config_cam.max_width = config.cam_max_width;
+  config_cam.min_height = config.cam_min_height;
+  config_cam.max_height = config.cam_max_height;
+  detector.Init(config_cam);
+
+  marker_pub = nh_->advertise<visualization_msgs::Marker>("visualization_marker", 1);
+  pcl_filter_debug = nh_->advertise<sensor_msgs::PointCloud2>("pc_filtered", 1);
+  cam_detection_debug = nh_->advertise<sensor_msgs::Image>("cam_detection", 1);
+  platform_yaw_sub = nh_->subscribe("/platform_driver/platform_rotation", 1, &LCDetector::platform_callback, this);
+  cloud_sub.subscribe(*nh_, config.lidar_topic, 1);
+  camera_sub.subscribe(*nh_, config.camera_topic, 1);
+
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, sensor_msgs::Image> MySyncPolicy;
+  message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), cloud_sub, camera_sub);
+  sync.registerCallback(boost::bind(&LCDetector::detection_callback, this, _1, _2));
+
+#if DEFINE_WAMP
+  reporter = new usfs::bridge::LidarCameraReporter(nh_);
+#endif
+}
+
+void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img)
+{
+  int id = 0;
+  pcl::PointCloud<pcl::PointXYZI> point_cloud_livox, pc_filtered;
   pcl::fromROSMsg(*msg_pc, point_cloud_livox);
-  cv_bridge::CvImagePtr cv_ptr;
-  cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BGR8);
-  cv::Mat image_undistorted;
+  cv_bridge::CvImagePtr cv_ptr, image_detection_result_ros;
+  cv::Mat image_undistorted, image_detection_result;
+  ros::Time time = msg_pc->header.stamp;
+
+  cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BAYER_RGGB8);
   undistortImage(cv_ptr->image, image_undistorted);
+  image_detection_result = image_undistorted.clone();
 
   std::vector<usfs::inference::ObjectDetectionResult> results;
   std::vector<int> points_count;
@@ -77,10 +131,12 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
   }
   else if (config.detection_mode == "lidar_first")
   {
+    //point cloud clustering
     std::vector<int> points_count_tmp;
     std::vector<visualization_msgs::Marker> markers_tmp;
     std::vector<std::vector<float>> lidar_box;
-    pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box);
+    pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box, pc_filtered);
+
     for (uint i = 0; i < points_count.size(); i++)
     {
       float r =
@@ -115,20 +171,26 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
 
     for (const auto &result : results)
     {
-      if (result.type == 0)
+      if (result.type == 0 || result.type == 1 || result.type == 2)
       {
-        // std::cout << result.type << ": " << result.prob << std::endl;
-        // boxs.push_back(result.bbox);
-        // std::cout << "x: " << result.bbox.x << ", y: " << result.bbox.x << std::endl;
-        // std::cout << "width: " << result.bbox.width << ", y: " << result.bbox.height << std::endl;
-        // std::cout << "x_center:" << result.bbox.x + 0.5 * result.bbox.width
-        //           << ", y_center:" << result.bbox.y + 0.5 * result.bbox.height << std::endl;
-        float y_center = -(result.bbox.x + 0.5 * result.bbox.width - 0.5 * 1440);
-        float z_center = -(result.bbox.y + 0.5 * result.bbox.height - 0.5 * 1080);
+        //draw result
+        cv::rectangle(image_detection_result, result.bbox, cv::Scalar(255, 0, 0));
+        string prob_str = to_string(result.prob);
+        string text;
+        if (result.type == 0)
+          text = "unknown: " + prob_str;
+        else if (result.type == 1)
+          text = "boat: " + prob_str;
+        else if (result.type == 2)
+          text = "buoy: " + prob_str;
+        cv::addText(image_detection_result, text, cv::Point(result.bbox.x, result.bbox.y), cv::fontQt("Times"));
+
+        float y_center = -(result.bbox.x + 0.5 * result.bbox.width - 0.5 * config.cam_max_width);
+        float z_center = -(result.bbox.y + 0.5 * result.bbox.height - 0.5 * config.cam_max_height);
         Vector2f object_img_direction_vector;
         Vector2f object_pc_direction_vector;
         object_img_direction_vector << y_center, z_center;
-        object_img_direction_vector.normalize();  // TODO might have bugs in here
+        object_img_direction_vector.normalize(); // TODO might have bugs in here
 
         float distance_min = 1000000;
         int index = -1;
@@ -156,11 +218,11 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
           object_info.x = markers[index].points[0].x;
           object_info.y = markers[index].points[0].y;
           object_info.z = markers[index].points[0].z;
+          object_info.set_offset(config.extrinsic_offset);
           object_info.coordinate_transform();
 
           object_info.lidar_box.assign(lidar_box[index].begin(), lidar_box[index].end());
-          // TODO add info from vision
-          if (result.type == 0)  // TODO update here later
+          if (result.type == 0 || result.type == 1 || result.type == 2) // TODO update here later
           {
             object_info.type = result.type;
             object_info.type_reliability = result.prob;
@@ -172,23 +234,31 @@ void callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs:
           }
           else
           {
-            object_info.color = 0;  // TODO hardcode in here
+            object_info.color = 0; // TODO hardcode in here
             object_info.color_reliability = 0.0;
           }
           object_info.print();
-          // reporter.publish(ros::Time::now(), object_info.id, object_info.distance, object_info.angle,
-          // object_info.type,
-          //                  object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-          //                  object_info.color_reliability, object_info.lidar_box);
+
+#if DEFINE_WAMP
+          reporter->publish(time, object_info.id, object_info.distance, object_info.angle,
+                            object_info.type,
+                            object_info.type_reliability, object_info.target_pcl_num, object_info.color,
+                            object_info.color_reliability, object_info.lidar_box);
+#endif
         }
       }
     }
+    pcl_filter_debug.publish(pc_filtered);
+    image_detection_result_ros->image = image_detection_result;
+    cam_detection_debug.publish(image_detection_result_ros->toImageMsg());
   }
 }
 
-void platformCallBack(const std_msgs::Float32 &yaw)
+void LCDetector::platform_callback(const std_msgs::Float32MultiArray &rotation)
 {
-  platform_yaw = yaw.data;
+  platform_roll = rotation.data[0];
+  platform_pitch = rotation.data[1];
+  platform_yaw = rotation.data[2];
 }
 
 int main(int argc, char **argv)
@@ -197,38 +267,8 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "pointcloud_fusion");
 
   ros::NodeHandle n;
-  string lidar_topic, camera_topic;
-  n.getParam("/data_topic/lidar_topic", lidar_topic);
-  n.getParam("/data_topic/camera_topic", camera_topic);
   loadConfig(n);
-  ros::Publisher marker_pub = n.advertise<visualization_msgs::Marker>("visualization_marker", 10);
-  // detector
-  Config config_cam;
-  std::string package_path = ros::package::getPath("usfs_inference");
-  config_cam.net_type = YOLOV4_TINY;
-  config_cam.file_model_cfg = package_path + "/asset/yolov4-tiny.cfg";
-  config_cam.file_model_weights = package_path + "/asset/yolov4-tiny.weights";
-  config_cam.inference_precison = FP16;  // use FP16 for Jetson Xavier NX
-  config_cam.n_max_batch = 1;
-  config_cam.detect_thresh = config.prob_threshold;
-  config_cam.min_width = 0;
-  config_cam.max_width = 1440;
-  config_cam.min_height = 0;
-  config_cam.max_height = 1080;
-  detector.Init(config_cam);
+  LCDetector detector(&n);
 
-  // usfs::bridge::LidarCameraReporter reporter(&n);
-  // reporter.Init();
-
-  ros::Subscriber platform_yaw_sub = n.subscribe("/platform_driver/platform_yaw", 10, &platformCallBack);
-  message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(n, lidar_topic, 1);
-  message_filters::Subscriber<sensor_msgs::Image> camera_sub(n, camera_topic, 1);
-
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, sensor_msgs::Image> MySyncPolicy;
-  message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), cloud_sub, camera_sub);
-  // sync.registerCallback(boost::bind(&callback, _1, _2, marker_pub, reporter));
-  sync.registerCallback(boost::bind(&callback, _1, _2, marker_pub));
   ros::spin();
-
-  return EXIT_SUCCESS;
 }

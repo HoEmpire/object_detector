@@ -3,27 +3,34 @@ cmake_minimum_required(VERSION 3.5)
 project(object_detector)
 
 # set compilation
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_definitions(-Wall -Wextra -Wno-deprecated-copy -Wno-unused-parameter -O2)
+# set(CMAKE_CXX_STANDARD 11)
+# set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS} -O3")
 
 # useful macros
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/util.cmake)
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/modules)
+# include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/util.cmake)
+# list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/modules)
 
 # find dependencies
-find_package(Glog REQUIRED)
+#find_package(Glog REQUIRED)
 find_package(Threads)
 find_package(OpenCV 4 REQUIRED)
 
 # ROS
-catkin_package(
-    # INCLUDE_DIRS include
-    LIBRARIES ${PROJECT_NAME}
-    CATKIN_DEPENDS roscpp usfs_common usfs_inference usfs_bridge
-    DEPENDS)
-find_package(catkin REQUIRED COMPONENTS
+# catkin_package(
+#     # INCLUDE_DIRS include
+#     #LIBRARIES ${PROJECT_NAME}
+#     CATKIN_DEPENDS 
+#     roscpp 
+#     usfs_common 
+#     usfs_inference 
+#     usfs_bridge
+#     DEPENDS)
+
+find_package(catkin 
+REQUIRED 
+COMPONENTS
     std_msgs
     roscpp
     usfs_common
@@ -56,11 +63,11 @@ include_directories(
 )
 
 # find all source files
-file(GLOB_RECURSE
-    src_files
-    ${PROJECT_SOURCE_DIR}/src/*.cc
-    ${PROJECT_SOURCE_DIR}/src/*/*.cc
-    )
+# file(GLOB_RECURSE
+#     src_files
+#     ${PROJECT_SOURCE_DIR}/src/*.cc
+#     ${PROJECT_SOURCE_DIR}/src/*/*.cc
+#     )
 
 # common library
 # add_library(
@@ -76,5 +83,5 @@ file(GLOB_RECURSE
 #     ${OpenCV_LIBS}
 # )
 
-add_executable(detector src/main.cpp) 
+add_executable(detector src/detector.cpp) 
 target_link_libraries(detector ${PCL_LIBRARIES} ${catkin_LIBRARIES} ${Eigen3_INCLUDE_DIRS} ${OpenCV_LIBS})  
