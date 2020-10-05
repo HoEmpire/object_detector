@@ -87,7 +87,7 @@ struct ConfigSetting
 
   void print()
   {
-    // cout << "fuck fuck fuck" << endl;
+    cout << "fuck fuck fuck" << endl;
     cout << "Extrinsic matrix: \n"
          << extrinsic_matrix << endl;
     cout << "Camera matrix: \n"

@@ -85,20 +85,26 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
 #if DEFINE_WAMP
   reporter = new usfs::bridge::LidarCameraReporter(nh_);
 #endif
+
+  ros::spin();
 }
 
 void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img)
 {
+  // ROS_INFO("into callback");
   int id = 0;
+  timer a;
+  a.tic();
   pcl::PointCloud<pcl::PointXYZI> point_cloud_livox, pc_filtered;
   pcl::fromROSMsg(*msg_pc, point_cloud_livox);
   cv_bridge::CvImagePtr cv_ptr, image_detection_result_ros;
   cv::Mat image_undistorted, image_detection_result;
   ros::Time time = msg_pc->header.stamp;
 
-  cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BAYER_RGGB8);
+  cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BGR8);
   undistortImage(cv_ptr->image, image_undistorted);
   image_detection_result = image_undistorted.clone();
+  ROS_INFO_STREAM("Data pre process takes " << a.toc() << " seconds");
 
   std::vector<usfs::inference::ObjectDetectionResult> results;
   std::vector<int> points_count;
@@ -135,8 +141,10 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     std::vector<int> points_count_tmp;
     std::vector<visualization_msgs::Marker> markers_tmp;
     std::vector<std::vector<float>> lidar_box;
+    a.tic();
     pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box, pc_filtered);
-
+    ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
+    pcl_filter_debug.publish(pc_filtered);
     for (uint i = 0; i < points_count.size(); i++)
     {
       float r =
@@ -168,89 +176,102 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     {
       ROS_INFO_STREAM("Nothing detected!");
     }
-
-    for (const auto &result : results)
+    else
     {
-      if (result.type == 0 || result.type == 1 || result.type == 2)
+      for (const auto &result : results)
       {
-        //draw result
-        cv::rectangle(image_detection_result, result.bbox, cv::Scalar(255, 0, 0));
-        string prob_str = to_string(result.prob);
-        string text;
-        if (result.type == 0)
-          text = "unknown: " + prob_str;
-        else if (result.type == 1)
-          text = "boat: " + prob_str;
-        else if (result.type == 2)
-          text = "buoy: " + prob_str;
-        cv::addText(image_detection_result, text, cv::Point(result.bbox.x, result.bbox.y), cv::fontQt("Times"));
-
-        float y_center = -(result.bbox.x + 0.5 * result.bbox.width - 0.5 * config.cam_max_width);
-        float z_center = -(result.bbox.y + 0.5 * result.bbox.height - 0.5 * config.cam_max_height);
-        Vector2f object_img_direction_vector;
-        Vector2f object_pc_direction_vector;
-        object_img_direction_vector << y_center, z_center;
-        object_img_direction_vector.normalize(); // TODO might have bugs in here
-
-        float distance_min = 1000000;
-        int index = -1;
-        for (uint i = 0; i < markers.size(); i++)
+        if (result.type == 0 || result.type == 1 || result.type == 2)
         {
-          object_pc_direction_vector << markers[i].points[0].y, markers[i].points[0].y;
-          if (object_pc_direction_vector.norm() < distance_min)
+          //draw result
+          ROS_INFO_STREAM("type: " << result.type << " detected!");
+          cv::rectangle(image_detection_result, result.bbox, cv::Scalar(255, 0, 0));
+          string prob_str = to_string(result.prob);
+          string text;
+          cv::Scalar draw_color;
+          if (result.type == 0)
           {
-            distance_min = object_pc_direction_vector.norm();
-            index = i;
+            text = "unknown: " + prob_str;
+            draw_color = cv::Scalar(255, 0, 0);
           }
-        }
-
-        if (index == -1)
-          ROS_INFO("Error in matching points with image object");
-        else
-        {
-          ROS_INFO("Succeed in matching points with image object");
-          transformMarkerCoordinate(markers[index], platform_yaw);
-          marker_pub.publish(markers[index]);
-
-          objectType object_info;
-          object_info.id = id++;
-          object_info.target_pcl_num = points_count[index];
-          object_info.x = markers[index].points[0].x;
-          object_info.y = markers[index].points[0].y;
-          object_info.z = markers[index].points[0].z;
-          object_info.set_offset(config.extrinsic_offset);
-          object_info.coordinate_transform();
-
-          object_info.lidar_box.assign(lidar_box[index].begin(), lidar_box[index].end());
-          if (result.type == 0 || result.type == 1 || result.type == 2) // TODO update here later
+          else if (result.type == 1)
           {
-            object_info.type = result.type;
-            object_info.type_reliability = result.prob;
-            usfs::inference::ColorDetectionResult color_result;
-            std::shared_ptr<usfs::inference::HsvColorClassifier> color_classifier;
-            color_classifier->Classify(image_undistorted, color_result, result);
-            object_info.color = color_result.color;
-            object_info.color_reliability = color_result.prob;
+            text = "boat: " + prob_str;
+            draw_color = cv::Scalar(0, 255, 0);
           }
+          else if (result.type == 2)
+          {
+            text = "buoy: " + prob_str;
+            draw_color = cv::Scalar(0, 0, 255);
+          }
+          cv::rectangle(image_detection_result, result.bbox, draw_color, 5.0);
+          cv::putText(image_detection_result, text, cv::Point(result.bbox.x, result.bbox.y), cv::FONT_HERSHEY_COMPLEX, 1.5, draw_color, 6.0);
+          float y_center = -(result.bbox.x + 0.5 * result.bbox.width - 0.5 * config.cam_max_width);
+          float z_center = -(result.bbox.y + 0.5 * result.bbox.height - 0.5 * config.cam_max_height);
+          Vector2f object_img_direction_vector;
+          Vector2f object_pc_direction_vector;
+          object_img_direction_vector << y_center, z_center;
+          object_img_direction_vector.normalize(); // TODO might have bugs in here
+          float distance_min = 1000000;
+          int index = -1;
+          for (uint i = 0; i < markers.size(); i++)
+          {
+            object_pc_direction_vector << markers[i].points[0].y, markers[i].points[0].y;
+            if (object_pc_direction_vector.norm() < distance_min)
+            {
+              distance_min = object_pc_direction_vector.norm();
+              index = i;
+            }
+          }
+
+          if (index == -1)
+            ROS_INFO("Error in matching points with image object");
           else
           {
-            object_info.color = 0; // TODO hardcode in here
-            object_info.color_reliability = 0.0;
-          }
-          object_info.print();
+            ROS_INFO("Succeed in matching points with image object");
+            transformMarkerCoordinate(markers[index], platform_yaw);
+            marker_pub.publish(markers[index]);
+
+            objectType object_info;
+            object_info.id = id++;
+            object_info.target_pcl_num = points_count[index];
+            object_info.x = markers[index].points[0].x;
+            object_info.y = markers[index].points[0].y;
+            object_info.z = markers[index].points[0].z;
+            object_info.set_offset(config.extrinsic_offset);
+            object_info.coordinate_transform();
+
+            object_info.lidar_box.assign(lidar_box[index].begin(), lidar_box[index].end());
+            if (result.type == 0 || result.type == 1 || result.type == 2) // TODO update here later
+            {
+              object_info.type = result.type;
+              object_info.type_reliability = result.prob;
+              usfs::inference::ColorDetectionResult color_result;
+              std::shared_ptr<usfs::inference::HsvColorClassifier> color_classifier;
+              color_classifier->Classify(image_undistorted, color_result, result);
+              object_info.color = color_result.color;
+              object_info.color_reliability = color_result.prob;
+            }
+            else
+            {
+              object_info.color = 0; // TODO hardcode in here
+              object_info.color_reliability = 0.0;
+            }
+            object_info.print();
 
 #if DEFINE_WAMP
-          reporter->publish(time, object_info.id, object_info.distance, object_info.angle,
-                            object_info.type,
-                            object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-                            object_info.color_reliability, object_info.lidar_box);
+            reporter->publish(time, object_info.id, object_info.distance, object_info.angle,
+                              object_info.type,
+                              object_info.type_reliability, object_info.target_pcl_num, object_info.color,
+                              object_info.color_reliability, object_info.lidar_box);
 #endif
+          }
         }
       }
     }
-    pcl_filter_debug.publish(pc_filtered);
-    image_detection_result_ros->image = image_detection_result;
-    cam_detection_debug.publish(image_detection_result_ros->toImageMsg());
+
+    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image_detection_result).toImageMsg();
+    cam_detection_debug.publish(image_msg);
+    // ROS_INFO("out of callback");
   }
 }
 
@@ -269,6 +290,4 @@ int main(int argc, char **argv)
   ros::NodeHandle n;
   loadConfig(n);
   LCDetector detector(&n);
-
-  ros::spin();
 }

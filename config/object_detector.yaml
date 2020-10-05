@@ -23,7 +23,7 @@ cam:
   cam_net_type: "YOLOV4_TINY"
   cam_file_model_cfg: "/asset/yolov4-tiny.cfg"
   cam_file_model_weights: "/asset/yolov4-tiny.weights"
-  cam_inference_precison: "FP16"
+  cam_inference_precison: "FP32"
   cam_n_max_batch: 1
   cam_prob_threshold: 0.5
   cam_min_width: 0

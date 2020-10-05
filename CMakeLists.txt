@@ -18,15 +18,15 @@ find_package(Threads)
 find_package(OpenCV 4 REQUIRED)
 
 # ROS
-# catkin_package(
-#     # INCLUDE_DIRS include
-#     #LIBRARIES ${PROJECT_NAME}
-#     CATKIN_DEPENDS 
-#     roscpp 
-#     usfs_common 
-#     usfs_inference 
-#     usfs_bridge
-#     DEPENDS)
+catkin_package(
+    INCLUDE_DIRS include
+    LIBRARIES ${PROJECT_NAME}
+    CATKIN_DEPENDS 
+    roscpp 
+    usfs_common 
+    usfs_inference 
+    usfs_bridge
+    DEPENDS)
 
 find_package(catkin 
 REQUIRED 
@@ -55,7 +55,6 @@ add_definitions(${PCL_DEFINITIONS})
 # common include directories
 include_directories(
     include
-    ${GLOG_INCLUDE_DIRS}
     ${catkin_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
     ${Eigen3_INCLUDE_DIRS}
