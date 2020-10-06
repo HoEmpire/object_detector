@@ -25,7 +25,9 @@ catkin_package(
     roscpp 
     usfs_common 
     usfs_inference 
+    usfs_example
     usfs_bridge
+    platform_driver
     DEPENDS)
 
 find_package(catkin 
@@ -35,10 +37,12 @@ COMPONENTS
     roscpp
     usfs_common
     usfs_inference
+    usfs_example
     usfs_bridge
     cv_bridge
     image_transport
     pcl_ros
+    platform_driver
     )
 
 find_package(OpenCV REQUIRED)

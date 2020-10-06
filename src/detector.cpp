@@ -20,15 +20,38 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/point_cloud.h>
 
-#include "usfs_bridge/reporter/lidar_camera_reporter.h"
 #include "object_detector/util.h"
+#include <platform_driver/command.h>
+#include "usfs_common/frame/object_type.h"
 
-#define DEFINE_WAMP 0
+#define DEFINE_WAMP 1
+
+#include "usfs_example/lidar_camera_adapter.h"
 
 using namespace std;
 using namespace Eigen;
 
-float platform_yaw = 0.0;
+inline bool WampMsgCallback(wampsdk::wsession &ws, const std::string &topic,
+                            const wampcc::json_object &data, trackCommandType &track_info)
+{
+  try
+  {
+    wampcc::json_object content;
+    usfs::common::UnpackWampMsg(data, content);
+    // auto distance = usfs::common::get_value<float>(content, "distance");
+    track_info.command_angle = usfs::common::get_value<float>(content, "angle");
+    track_info.timeout.tic();
+    track_info.command_queue++;
+    // do something
+    return true;
+  }
+  catch (std::exception &e)
+  {
+    AERROR << e.what() << std::endl;
+    return false;
+  }
+}
+
 class LCDetector
 {
 public:
@@ -38,9 +61,12 @@ public:
   float platform_roll, platform_pitch, platform_yaw;
 
 private:
+  trackCommandType track_info;
+  platform_driver::command cmd_msg;
   ros::NodeHandle *nh_;
   usfs::inference::YoloObjectDetector detector;
   ros::Publisher marker_pub;
+  ros::Publisher platform_command_pub;
   ros::Subscriber platform_yaw_sub;
   message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub;
   message_filters::Subscriber<sensor_msgs::Image> camera_sub;
@@ -49,7 +75,7 @@ private:
   ros::Publisher cam_detection_debug;
 
 #if DEFINE_WAMP
-  usfs::bridge::LidarCameraReporter *reporter;
+  usfs::bridge::LidarCameraAdapter *adapter;
 #endif
 };
 
@@ -72,6 +98,7 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   detector.Init(config_cam);
 
   marker_pub = nh_->advertise<visualization_msgs::Marker>("visualization_marker", 1);
+  platform_command_pub = nh_->advertise<platform_driver::command>("write", 1);
   pcl_filter_debug = nh_->advertise<sensor_msgs::PointCloud2>("pc_filtered", 1);
   cam_detection_debug = nh_->advertise<sensor_msgs::Image>("cam_detection", 1);
   platform_yaw_sub = nh_->subscribe("/platform_driver/platform_rotation", 1, &LCDetector::platform_callback, this);
@@ -83,7 +110,12 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   sync.registerCallback(boost::bind(&LCDetector::detection_callback, this, _1, _2));
 
 #if DEFINE_WAMP
-  reporter = new usfs::bridge::LidarCameraReporter(nh_);
+  adapter = new usfs::bridge::LidarCameraAdapter(nh_);
+  ROS_INFO("FUCK0");
+  adapter->Init();
+  ROS_INFO("FUCK1");
+  adapter->subscribe(boost::bind(&WampMsgCallback, _1, _2, _3, track_info));
+  ROS_INFO("FUCK2");
 #endif
 
   ros::spin();
@@ -188,17 +220,17 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           string prob_str = to_string(result.prob);
           string text;
           cv::Scalar draw_color;
-          if (result.type == 0)
+          if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == 0)
           {
             text = "unknown: " + prob_str;
             draw_color = cv::Scalar(255, 0, 0);
           }
-          else if (result.type == 1)
+          else if (result.type == static_cast<int>(usfs::common::ObjectType::SHIP))
           {
-            text = "boat: " + prob_str;
+            text = "ship: " + prob_str;
             draw_color = cv::Scalar(0, 255, 0);
           }
-          else if (result.type == 2)
+          else if (result.type == static_cast<int>(usfs::common::ObjectType::BUOY))
           {
             text = "buoy: " + prob_str;
             draw_color = cv::Scalar(0, 0, 255);
@@ -210,7 +242,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           Vector2f object_img_direction_vector;
           Vector2f object_pc_direction_vector;
           object_img_direction_vector << y_center, z_center;
-          object_img_direction_vector.normalize(); // TODO might have bugs in here
+          object_img_direction_vector.normalize();
           float distance_min = 1000000;
           int index = -1;
           for (uint i = 0; i < markers.size(); i++)
@@ -241,7 +273,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
             object_info.coordinate_transform();
 
             object_info.lidar_box.assign(lidar_box[index].begin(), lidar_box[index].end());
-            if (result.type == 0 || result.type == 1 || result.type == 2) // TODO update here later
+            if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == static_cast<int>(usfs::common::ObjectType::BUOY) || result.type == static_cast<int>(usfs::common::ObjectType::SHIP) || result.type == 0)
             {
               object_info.type = result.type;
               object_info.type_reliability = result.prob;
@@ -253,16 +285,35 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
             }
             else
             {
-              object_info.color = 0; // TODO hardcode in here
+              object_info.color = static_cast<int>(usfs::common::BuoyType::UNKNOWN);
               object_info.color_reliability = 0.0;
             }
             object_info.print();
 
 #if DEFINE_WAMP
-            reporter->publish(time, object_info.id, object_info.distance, object_info.angle,
-                              object_info.type,
-                              object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-                              object_info.color_reliability, object_info.lidar_box);
+            adapter->publish(time, object_info.id, object_info.distance, object_info.angle,
+                             object_info.type,
+                             object_info.type_reliability, object_info.target_pcl_num, object_info.color,
+                             object_info.color_reliability, object_info.lidar_box);
+            if (track_info.command_queue != 0)
+            {
+              track_info.command_queue--;
+              cmd_msg.mode = 2; //tracking
+              cmd_msg.track_yaw = track_info.command_angle;
+              platform_command_pub.publish(cmd_msg);
+              track_info.have_sent_scan_command = false;
+            }
+            else
+            {
+              if (track_info.timeout.toc() > config.track_timeout && track_info.have_sent_scan_command == false)
+              {
+                cmd_msg.mode = 1; //scanning
+                cmd_msg.scan_cycle_time = config.scan_cycle_time;
+                cmd_msg.scan_range = config.scan_range;
+                platform_command_pub.publish(cmd_msg);
+                track_info.have_sent_scan_command = true;
+              }
+            }
 #endif
           }
         }

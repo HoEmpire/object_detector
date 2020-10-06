@@ -30,6 +30,12 @@ using namespace Eigen;
 using namespace std;
 using namespace std::chrono;
 
+enum class platformCommand
+{
+  SCANNING = 1,
+  TRACKING = 2,
+};
+
 Vector3f rotationMatrixToEulerAngles(Matrix3f R)
 {
   float sy = sqrt(R(0, 0) * R(0, 0) + R(1, 0) * R(1, 0));
@@ -83,11 +89,14 @@ struct ConfigSetting
   float cam_min_height = 0;
   float cam_max_height = 1080;
 
+  float scan_cycle_time = 20.0;
+  float scan_range = 80.0;
+  float track_timeout = 5.0;
+
   Matrix4f extrinsic_offset;
 
   void print()
   {
-    cout << "fuck fuck fuck" << endl;
     cout << "Extrinsic matrix: \n"
          << extrinsic_matrix << endl;
     cout << "Camera matrix: \n"
@@ -117,6 +126,10 @@ struct ConfigSetting
     cout << "cam_max_width: " << cam_max_width << endl;
     cout << "cam_min_height: " << cam_min_height << endl;
     cout << "cam_max_height: " << cam_max_height << endl;
+
+    cout << "scan_cycle_time: " << scan_cycle_time << endl;
+    cout << "scan_range: " << scan_range << endl;
+    cout << "track_timeout: " << track_timeout << endl;
   }
 } config;
 
@@ -165,6 +178,10 @@ struct objectType
 
 struct timer
 {
+  timer()
+  {
+    t_start = steady_clock::now();
+  }
   steady_clock::time_point t_start, t_end;
   void tic()
   {
@@ -176,6 +193,14 @@ struct timer
     t_end = steady_clock::now();
     return duration_cast<duration<double>>(t_end - t_start).count();
   }
+};
+
+struct trackCommandType
+{
+  int command_queue = 0;
+  float command_angle = 0.0;
+  timer timeout;
+  bool have_sent_scan_command;
 };
 
 void readConfig()
@@ -243,6 +268,10 @@ void loadConfig(ros::NodeHandle n)
   config.extrinsic_offset(3, 0) = translation[0];
   config.extrinsic_offset(3, 1) = translation[1];
   config.extrinsic_offset(3, 2) = translation[2];
+
+  n.getParam("/platform/scan_cycle_time", config.scan_cycle_time);
+  n.getParam("/platform/scan_range", config.scan_range);
+  n.getParam("/platform/track_timeout", config.track_timeout);
 
   config.print();
 }

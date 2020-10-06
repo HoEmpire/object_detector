@@ -34,3 +34,8 @@ cam:
 extrinsic_parameter:
   translation: [0.0, 0.0, 0.0]
   rotation: [0.0, 0.0, 0.0]
+
+platform:
+  scan_cycle_time: 20.0
+  scan_range: 80.0
+  track_timeout: 10.0
