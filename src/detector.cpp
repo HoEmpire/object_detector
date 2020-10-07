@@ -24,7 +24,7 @@
 #include <platform_driver/command.h>
 #include "usfs_common/frame/object_type.h"
 
-#define DEFINE_WAMP 1
+#define DEFINE_WAMP 0
 
 #include "usfs_example/lidar_camera_adapter.h"
 
@@ -97,6 +97,10 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   config_cam.max_height = config.cam_max_height;
   detector.Init(config_cam);
 
+  platform_roll = 0.0;
+  platform_pitch = 0.0;
+  platform_yaw = 0.0;
+
   marker_pub = nh_->advertise<visualization_msgs::Marker>("visualization_marker", 1);
   platform_command_pub = nh_->advertise<platform_driver::command>("write", 1);
   pcl_filter_debug = nh_->advertise<sensor_msgs::PointCloud2>("pc_filtered", 1);
@@ -130,12 +134,12 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
   pcl::PointCloud<pcl::PointXYZI> point_cloud_livox, pc_filtered;
   pcl::fromROSMsg(*msg_pc, point_cloud_livox);
   cv_bridge::CvImagePtr cv_ptr, image_detection_result_ros;
-  cv::Mat image_undistorted, image_detection_result;
+  cv::Mat image_detection_result;
   ros::Time time = msg_pc->header.stamp;
 
   cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BGR8);
-  undistortImage(cv_ptr->image, image_undistorted);
-  image_detection_result = image_undistorted.clone();
+  // undistortImage(cv_ptr->image, image_undistorted);
+  image_detection_result = cv_ptr->image.clone();
   ROS_INFO_STREAM("Data pre process takes " << a.toc() << " seconds");
 
   std::vector<usfs::inference::ObjectDetectionResult> results;
@@ -145,7 +149,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
   // object detection
   if (config.detection_mode == "camera_first")
   {
-    detector.Detect(image_undistorted, results);
+    detector.Detect(image_detection_result, results);
     for (const auto &result : results)
     {
       if (result.type == 0)
@@ -202,7 +206,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
 
     // image detection
     ROS_INFO_STREAM("Checking with image...");
-    detector.Detect(image_undistorted, results);
+    detector.Detect(cv_ptr->image, results);
 
     if (results.size() == 0)
     {
@@ -279,7 +283,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
               object_info.type_reliability = result.prob;
               usfs::inference::ColorDetectionResult color_result;
               std::shared_ptr<usfs::inference::HsvColorClassifier> color_classifier;
-              color_classifier->Classify(image_undistorted, color_result, result);
+              color_classifier->Classify(cv_ptr->image, color_result, result);
               object_info.color = color_result.color;
               object_info.color_reliability = color_result.prob;
             }
