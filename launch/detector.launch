@@ -4,6 +4,7 @@
   <rosparam command="load" file="$(find object_detector)/config/object_detector.yaml" />
   <rosparam command="load" file="$(find usfs_bridge)/config/general.yml" />
   <rosparam command="load" file="$(find usfs_bridge)/config/reporter.yml" />
+   <rosparam command="load" file="$(find usfs_bridge)/config/driver.yml" />
   <node pkg="object_detector" type="detector" name="detector" output="screen">
   </node>
 </launch>

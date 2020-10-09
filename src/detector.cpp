@@ -185,6 +185,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     a.tic();
     pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box, pc_filtered);
     ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
+    pc_filtered.header.frame_id = "livox_frame";
     pcl_filter_debug.publish(pc_filtered);
     for (uint i = 0; i < points_count.size(); i++)
     {
