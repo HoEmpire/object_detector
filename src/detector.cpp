@@ -23,34 +23,15 @@
 #include "object_detector/util.h"
 #include <platform_driver/command.h>
 #include "usfs_common/frame/object_type.h"
+#include "usfs_common/InsSensorData.h"
 
-#define DEFINE_WAMP 0
+#define DEFINE_WAMP 1
 
 #include "usfs_example/lidar_camera_adapter.h"
+#include "usfs_bridge/driver/ins_driver.h"
 
 using namespace std;
 using namespace Eigen;
-
-inline bool WampMsgCallback(wampsdk::wsession &ws, const std::string &topic,
-                            const wampcc::json_object &data, trackCommandType &track_info)
-{
-  try
-  {
-    wampcc::json_object content;
-    usfs::common::UnpackWampMsg(data, content);
-    // auto distance = usfs::common::get_value<float>(content, "distance");
-    track_info.command_angle = usfs::common::get_value<float>(content, "angle");
-    track_info.timeout.tic();
-    track_info.command_queue++;
-    // do something
-    return true;
-  }
-  catch (std::exception &e)
-  {
-    AERROR << e.what() << std::endl;
-    return false;
-  }
-}
 
 class LCDetector
 {
@@ -58,7 +39,12 @@ public:
   LCDetector(ros::NodeHandle *nh);
   void detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img);
   void platform_callback(const std_msgs::Float32MultiArray &rotation);
-  float platform_roll, platform_pitch, platform_yaw;
+  void ins_callback(const usfs_common::InsSensorData &msg);
+  bool WampMsgCallback(wampsdk::wsession &ws, const std::string &topic,
+                       const wampcc::json_object &data);
+  float platform_roll,
+      platform_pitch, platform_yaw;
+  float ins_yaw;
 
 private:
   trackCommandType track_info;
@@ -68,6 +54,7 @@ private:
   ros::Publisher marker_pub;
   ros::Publisher platform_command_pub;
   ros::Subscriber platform_yaw_sub;
+  ros::Subscriber ins_sub;
   message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub;
   message_filters::Subscriber<sensor_msgs::Image> camera_sub;
 
@@ -76,6 +63,7 @@ private:
 
 #if DEFINE_WAMP
   usfs::bridge::LidarCameraAdapter *adapter;
+  usfs::bridge::InsDriver *driver_ins;
 #endif
 };
 
@@ -100,12 +88,14 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   platform_roll = 0.0;
   platform_pitch = 0.0;
   platform_yaw = 0.0;
+  ins_yaw = 0.0;
 
   marker_pub = nh_->advertise<visualization_msgs::Marker>("visualization_marker", 1);
   platform_command_pub = nh_->advertise<platform_driver::command>("write", 1);
   pcl_filter_debug = nh_->advertise<sensor_msgs::PointCloud2>("pc_filtered", 1);
   cam_detection_debug = nh_->advertise<sensor_msgs::Image>("cam_detection", 1);
   platform_yaw_sub = nh_->subscribe("/platform_driver/platform_rotation", 1, &LCDetector::platform_callback, this);
+  ins_sub = nh_->subscribe("/usfs/sensor/ins", 1, &LCDetector::ins_callback, this);
   cloud_sub.subscribe(*nh_, config.lidar_topic, 1);
   camera_sub.subscribe(*nh_, config.camera_topic, 1);
 
@@ -115,14 +105,29 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
 
 #if DEFINE_WAMP
   adapter = new usfs::bridge::LidarCameraAdapter(nh_);
-  ROS_INFO("FUCK0");
+  driver_ins = new usfs::bridge::InsDriver(nh_);
+  // ROS_INFO("FUCK0");
   adapter->Init();
-  ROS_INFO("FUCK1");
-  adapter->subscribe(boost::bind(&WampMsgCallback, _1, _2, _3, track_info));
-  ROS_INFO("FUCK2");
+  driver_ins->Init();
+  driver_ins->Start();
+  // ROS_INFO("FUCK1");
+  adapter->subscribe(boost::bind(&LCDetector::WampMsgCallback, this, _1, _2, _3));
+  // ROS_INFO("FUCK2");
 #endif
 
-  ros::spin();
+  while (ros::ok())
+  {
+    if (track_info.timeout.toc() > config.track_timeout && track_info.have_sent_scan_command == false)
+    {
+      ROS_INFO("Sending scan command!!!");
+      cmd_msg.mode = 1; //scanning
+      cmd_msg.scan_cycle_time = config.scan_cycle_time;
+      cmd_msg.scan_range = config.scan_range;
+      platform_command_pub.publish(cmd_msg);
+      track_info.have_sent_scan_command = true;
+    }
+    ros::spinOnce();
+  }
 }
 
 void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img)
@@ -211,6 +216,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     if (results.size() == 0)
     {
       ROS_INFO_STREAM("Nothing detected!");
+      cout << endl;
     }
     else
     {
@@ -293,39 +299,21 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
               object_info.color_reliability = 0.0;
             }
             object_info.print();
+            sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image_detection_result).toImageMsg();
+            cam_detection_debug.publish(image_msg);
 
 #if DEFINE_WAMP
             adapter->publish(time, object_info.id, object_info.distance, object_info.angle,
                              object_info.type,
                              object_info.type_reliability, object_info.target_pcl_num, object_info.color,
                              object_info.color_reliability, object_info.lidar_box);
-            if (track_info.command_queue != 0)
-            {
-              track_info.command_queue--;
-              cmd_msg.mode = 2; //tracking
-              cmd_msg.track_yaw = track_info.command_angle;
-              platform_command_pub.publish(cmd_msg);
-              track_info.have_sent_scan_command = false;
-            }
-            else
-            {
-              if (track_info.timeout.toc() > config.track_timeout && track_info.have_sent_scan_command == false)
-              {
-                cmd_msg.mode = 1; //scanning
-                cmd_msg.scan_cycle_time = config.scan_cycle_time;
-                cmd_msg.scan_range = config.scan_range;
-                platform_command_pub.publish(cmd_msg);
-                track_info.have_sent_scan_command = true;
-              }
-            }
 #endif
           }
         }
       }
+      cout << endl;
     }
 
-    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(std_msgs::Header(), "bgr8", image_detection_result).toImageMsg();
-    cam_detection_debug.publish(image_msg);
     // ROS_INFO("out of callback");
   }
 }
@@ -335,6 +323,38 @@ void LCDetector::platform_callback(const std_msgs::Float32MultiArray &rotation)
   platform_roll = rotation.data[0];
   platform_pitch = rotation.data[1];
   platform_yaw = rotation.data[2];
+}
+
+void LCDetector::ins_callback(const usfs_common::InsSensorData &msg)
+{
+  if (msg.bow_angle < 180.0)
+    ins_yaw = msg.bow_angle;
+  else
+    ins_yaw = msg.bow_angle - 360;
+}
+
+bool LCDetector::WampMsgCallback(wampsdk::wsession &ws, const std::string &topic,
+                                 const wampcc::json_object &data)
+{
+  wampcc::json_object content;
+  usfs::common::UnpackWampMsg(data, content);
+  // auto distance = usfs::common::get_value<float>(content, "distance");
+  track_info.command_angle = usfs::common::get_value<float>(content, "angle");
+  ROS_INFO_STREAM("Recevie tracking command, yaw = " << track_info.command_angle);
+  track_info.timeout.tic();
+  track_info.command_queue++;
+  // ROS_INFO_STREAM(" Command queue = " << track_info.command_queue);
+  if (track_info.command_queue != 0)
+  {
+    ROS_INFO("Sending track command!!!");
+    track_info.command_queue--;
+    cmd_msg.mode = 2; //tracking
+    cmd_msg.track_yaw = -(track_info.command_angle - ins_yaw);
+    if (abs(cmd_msg.track_yaw) < 90)
+      platform_command_pub.publish(cmd_msg);
+    track_info.have_sent_scan_command = false;
+  }
+  return true;
 }
 
 int main(int argc, char **argv)

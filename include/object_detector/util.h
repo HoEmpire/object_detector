@@ -200,7 +200,7 @@ struct trackCommandType
   int command_queue = 0;
   float command_angle = 0.0;
   timer timeout;
-  bool have_sent_scan_command;
+  bool have_sent_scan_command = false;
 };
 
 void readConfig()
@@ -348,8 +348,8 @@ void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::
     markers[i].ns = "points_and_lines";
     markers[i].action = visualization_msgs::Marker::ADD;
     markers[i].pose.orientation.w = 1.0;
-    markers[i].scale.x = 0.2;
-    markers[i].scale.y = 0.2;
+    markers[i].scale.x = 10.0;
+    markers[i].scale.y = 10.0;
     markers[i].color.r = 0.0;
     markers[i].color.a = 1.0;
     markers[i].color.g = 1.0;
