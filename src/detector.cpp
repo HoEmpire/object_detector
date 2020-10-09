@@ -114,12 +114,13 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   adapter->subscribe(boost::bind(&LCDetector::WampMsgCallback, this, _1, _2, _3));
   // ROS_INFO("FUCK2");
 #endif
-
+  ros::Rate r(20);
   while (ros::ok())
   {
-    if (track_info.timeout.toc() > config.track_timeout && track_info.have_sent_scan_command == false)
+    if (track_info.timeout.toc() > config.track_timeout)
     {
-      ROS_INFO("Sending scan command!!!");
+      if (track_info.have_sent_scan_command == false)
+        ROS_INFO("Sending scan command!!!");
       cmd_msg.mode = 1; //scanning
       cmd_msg.scan_cycle_time = config.scan_cycle_time;
       cmd_msg.scan_range = config.scan_range;
@@ -127,6 +128,7 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
       track_info.have_sent_scan_command = true;
     }
     ros::spinOnce();
+    r.sleep();
   }
 }
 
@@ -145,7 +147,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
   cv_ptr = cv_bridge::toCvCopy(msg_img, sensor_msgs::image_encodings::BGR8);
   // undistortImage(cv_ptr->image, image_undistorted);
   image_detection_result = cv_ptr->image.clone();
-  ROS_INFO_STREAM("Data pre process takes " << a.toc() << " seconds");
+  // ROS_INFO_STREAM("Data pre process takes " << a.toc() << " seconds");
 
   std::vector<usfs::inference::ObjectDetectionResult> results;
   std::vector<int> points_count;
@@ -184,7 +186,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     std::vector<std::vector<float>> lidar_box;
     a.tic();
     pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box, pc_filtered);
-    ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
+    // ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
     pc_filtered.header.frame_id = "livox_frame";
     pcl_filter_debug.publish(pc_filtered);
     for (uint i = 0; i < points_count.size(); i++)
@@ -223,7 +225,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     {
       for (const auto &result : results)
       {
-        if (result.type == 0 || result.type == 1 || result.type == 2)
+        if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == static_cast<int>(usfs::common::ObjectType::SHIP) || result.type == static_cast<int>(usfs::common::ObjectType::BUOY))
         {
           //draw result
           ROS_INFO_STREAM("type: " << result.type << " detected!");
@@ -231,7 +233,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           string prob_str = to_string(result.prob);
           string text;
           cv::Scalar draw_color;
-          if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == 0)
+          if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN))
           {
             text = "unknown: " + prob_str;
             draw_color = cv::Scalar(255, 0, 0);
@@ -271,7 +273,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           else
           {
             ROS_INFO("Succeed in matching points with image object");
-            transformMarkerCoordinate(markers[index], platform_yaw);
+            transformMarkerCoordinate(markers[index], platform_roll, platform_pitch, platform_yaw);
             marker_pub.publish(markers[index]);
 
             objectType object_info;
@@ -341,6 +343,8 @@ bool LCDetector::WampMsgCallback(wampsdk::wsession &ws, const std::string &topic
   usfs::common::UnpackWampMsg(data, content);
   // auto distance = usfs::common::get_value<float>(content, "distance");
   track_info.command_angle = usfs::common::get_value<float>(content, "angle");
+  if (track_info.command_angle > 180)
+    track_info.command_angle -= 360;
   ROS_INFO_STREAM("Recevie tracking command, yaw = " << track_info.command_angle);
   track_info.timeout.tic();
   track_info.command_queue++;

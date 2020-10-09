@@ -348,8 +348,8 @@ void calPointsNum(pcl::PointCloud<pcl::PointXYZI> point_cloud, const vector<cv::
     markers[i].ns = "points_and_lines";
     markers[i].action = visualization_msgs::Marker::ADD;
     markers[i].pose.orientation.w = 1.0;
-    markers[i].scale.x = 10.0;
-    markers[i].scale.y = 10.0;
+    markers[i].scale.x = 20.0;
+    markers[i].scale.y = 20.0;
     markers[i].color.r = 0.0;
     markers[i].color.a = 1.0;
     markers[i].color.g = 1.0;
@@ -533,8 +533,17 @@ void undistortImage(const cv::Mat image_distorted, cv::Mat &image_undistorted)
   }
 }
 
-void transformMarkerCoordinate(visualization_msgs::Marker &marker, float yaw)
+void transformMarkerCoordinate(visualization_msgs::Marker &marker, float roll, float pitch, float yaw)
 {
-  marker.points[0].x = marker.points[0].x * cos(yaw / 180 * M_PI) - marker.points[0].y * sin(yaw / 180 * M_PI);
-  marker.points[0].y = marker.points[0].x * sin(yaw / 180 * M_PI) + marker.points[0].y * cos(yaw / 180 * M_PI);
+  AngleAxisf rollAngle(AngleAxisf(roll / 180 * M_PI, Vector3f::UnitX()));
+  AngleAxisf pitchAngle(AngleAxisf(pitch / 180 * M_PI, Vector3f::UnitY()));
+  AngleAxisf yawAngle(AngleAxisf(yaw / 180 * M_PI, Vector3f::UnitZ()));
+  Matrix3f rotation_matrix;
+  rotation_matrix = yawAngle * pitchAngle * rollAngle;
+  Vector3f p;
+  p << marker.points[0].x, marker.points[0].y, marker.points[0].z;
+  p = rotation_matrix * p;
+  marker.points[0].x = p(0);
+  marker.points[0].y = p(1);
+  marker.points[0].z = p(2);
 }
