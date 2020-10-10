@@ -431,11 +431,11 @@ void pointCloudClustering(pcl::PointCloud<pcl::PointXYZI> point_cloud, vector<in
     markers[i].ns = "points_and_lines";
     markers[i].action = visualization_msgs::Marker::ADD;
     markers[i].pose.orientation.w = 1.0;
-    markers[i].scale.x = 0.2;
-    markers[i].scale.y = 0.2;
-    markers[i].color.r = 1.0;
+    markers[i].scale.x = 20.0;
+    markers[i].scale.y = 20.0;
+    markers[i].color.r = 0.0;
     markers[i].color.a = 1.0;
-    markers[i].color.g = 0.0;
+    markers[i].color.g = 1.0;
     markers[i].color.b = 0.0;
     markers[i].type = visualization_msgs::Marker::POINTS;
 

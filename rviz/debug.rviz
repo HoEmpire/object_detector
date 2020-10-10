@@ -10,6 +10,7 @@ Panels:
         - /Image1
         - /Image2
         - /PointCloud22
+        - /Axes1
       Splitter Ratio: 0.5
     Tree Height: 214
   - Class: rviz/Selection
@@ -103,7 +104,7 @@ Visualization Manager:
       Marker Topic: /visualization_marker
       Name: Marker
       Namespaces:
-        points_and_lines: true
+        {}
       Queue Size: 100
       Value: true
     - Class: rviz/Image
@@ -148,11 +149,18 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz/Axes
+      Enabled: true
+      Length: 30
+      Name: Axes
+      Radius: 5
+      Reference Frame: livox_frame
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Default Light: true
-    Fixed Frame: map
+    Fixed Frame: livox_frame
     Frame Rate: 30
   Name: root
   Tools:
@@ -176,7 +184,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 846.0494384765625
+      Distance: 1253.3515625
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -191,10 +199,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.3697971105575562
+      Pitch: 1.2197964191436768
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.290395736694336
+      Yaw: 3.1203880310058594
     Saved: ~
 Window Geometry:
   Displays:
