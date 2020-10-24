@@ -114,6 +114,7 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   adapter->subscribe(boost::bind(&LCDetector::WampMsgCallback, this, _1, _2, _3));
   // ROS_INFO("FUCK2");
 #endif
+
   ros::Rate r(20);
   while (ros::ok())
   {
@@ -189,6 +190,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     // ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
     pc_filtered.header.frame_id = "livox_frame";
     pcl_filter_debug.publish(pc_filtered);
+
     for (uint i = 0; i < points_count.size(); i++)
     {
       float r =
@@ -207,6 +209,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
                                             << markers[i].points[0].z);
       }
     }
+
     if (points_count_tmp.size() == 0)
       return;
     points_count = points_count_tmp;
@@ -219,6 +222,36 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     if (results.size() == 0)
     {
       ROS_INFO_STREAM("Nothing detected!");
+#if DEFINE_WAMP
+      if (track_info.have_sent_scan_command == false)
+      {
+        ROS_INFO_STREAM("Sending lidar detection informations in Targeting mode!");
+        for (int i = 0; i < points_count.size(); i++)
+        {
+          transformMarkerCoordinate(markers[i], platform_roll, platform_pitch, platform_yaw);
+          marker_pub.publish(markers[i]);
+
+          objectType object_info;
+          object_info.id = id++;
+          object_info.target_pcl_num = points_count[i];
+          object_info.x = markers[i].points[0].x;
+          object_info.y = markers[i].points[0].y;
+          object_info.z = markers[i].points[0].z;
+          object_info.set_offset(config.extrinsic_offset);
+          object_info.coordinate_transform();
+          object_info.lidar_box.assign(lidar_box[i].begin(), lidar_box[i].end());
+          object_info.type = static_cast<int>(usfs::common::ObjectType::UNKNOWN);
+          object_info.type_reliability = 0.0;
+          object_info.color = static_cast<int>(usfs::common::BuoyType::UNKNOWN);
+          object_info.color_reliability = 0.0;
+          object_info.print();
+          adapter->publish(time, object_info.id, object_info.distance, object_info.angle,
+                           object_info.type,
+                           object_info.type_reliability, object_info.target_pcl_num, object_info.color,
+                           object_info.color_reliability, object_info.lidar_box);
+        }
+      }
+#endif
       cout << endl;
     }
     else
@@ -286,10 +319,11 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
             object_info.coordinate_transform();
 
             object_info.lidar_box.assign(lidar_box[index].begin(), lidar_box[index].end());
-            if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == static_cast<int>(usfs::common::ObjectType::BUOY) || result.type == static_cast<int>(usfs::common::ObjectType::SHIP) || result.type == 0)
+            object_info.type = result.type;
+            object_info.type_reliability = result.prob;
+
+            if (result.type == static_cast<int>(usfs::common::ObjectType::BUOY))
             {
-              object_info.type = result.type;
-              object_info.type_reliability = result.prob;
               usfs::inference::ColorDetectionResult color_result;
               std::shared_ptr<usfs::inference::HsvColorClassifier> color_classifier;
               color_classifier->Classify(cv_ptr->image, color_result, result);
@@ -316,8 +350,6 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
       }
       cout << endl;
     }
-
-    // ROS_INFO("out of callback");
   }
 }
 
