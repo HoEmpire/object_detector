@@ -196,7 +196,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
       float r =
           sqrt((markers[i].points[0].x * markers[i].points[0].x + markers[i].points[0].y * markers[i].points[0].y +
                 markers[i].points[0].z + markers[i].points[0].z));
-      float pts_num_min = config.points_number_min / (r / config.points_number_distance_coeff);
+      float pts_num_min = config.points_number_min / (r * r / (config.points_number_distance_coeff * config.points_number_distance_coeff));
       float pts_num_max = config.points_number_max / (r / config.points_number_distance_coeff);
       if (points_count[i] > pts_num_min && points_count[i] < pts_num_max)
       {
@@ -228,15 +228,16 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
         ROS_INFO_STREAM("Sending lidar detection informations in Targeting mode!");
         for (int i = 0; i < points_count.size(); i++)
         {
-          transformMarkerCoordinate(markers[i], platform_roll, platform_pitch, platform_yaw);
-          marker_pub.publish(markers[i]);
+          visualization_msgs::Marker marker_boat_frame;
+          transformMarkerCoordinate(markers[i], platform_roll, platform_pitch, platform_yaw, marker_boat_frame);
+          marker_pub.publish(marker_boat_frame);
 
           objectType object_info;
           object_info.id = id++;
           object_info.target_pcl_num = points_count[i];
-          object_info.x = markers[i].points[0].x;
-          object_info.y = markers[i].points[0].y;
-          object_info.z = markers[i].points[0].z;
+          object_info.x = marker_boat_frame.points[0].x;
+          object_info.y = marker_boat_frame.points[0].y;
+          object_info.z = marker_boat_frame.points[0].z;
           object_info.set_offset(config.extrinsic_offset);
           object_info.coordinate_transform();
           object_info.lidar_box.assign(lidar_box[i].begin(), lidar_box[i].end());
@@ -306,15 +307,16 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           else
           {
             ROS_INFO("Succeed in matching points with image object");
-            transformMarkerCoordinate(markers[index], platform_roll, platform_pitch, platform_yaw);
-            marker_pub.publish(markers[index]);
+            visualization_msgs::Marker marker_boat_frame;
+            transformMarkerCoordinate(markers[index], platform_roll, platform_pitch, platform_yaw, marker_boat_frame);
+            marker_pub.publish(marker_boat_frame);
 
             objectType object_info;
             object_info.id = id++;
             object_info.target_pcl_num = points_count[index];
-            object_info.x = markers[index].points[0].x;
-            object_info.y = markers[index].points[0].y;
-            object_info.z = markers[index].points[0].z;
+            object_info.x = marker_boat_frame.points[0].x;
+            object_info.y = marker_boat_frame.points[0].y;
+            object_info.z = marker_boat_frame.points[0].z;
             object_info.set_offset(config.extrinsic_offset);
             object_info.coordinate_transform();
 
@@ -387,8 +389,13 @@ bool LCDetector::WampMsgCallback(wampsdk::wsession &ws, const std::string &topic
     track_info.command_queue--;
     cmd_msg.mode = 2; //tracking
     cmd_msg.track_yaw = -(track_info.command_angle - ins_yaw);
-    if (abs(cmd_msg.track_yaw) < 90)
+    if (abs(cmd_msg.track_yaw) < 85.0)
       platform_command_pub.publish(cmd_msg);
+    else
+    {
+      cmd_msg.track_yaw = -(track_info.command_angle - ins_yaw) / abs(track_info.command_angle - ins_yaw) * 85.0;
+      platform_command_pub.publish(cmd_msg);
+    }
     track_info.have_sent_scan_command = false;
   }
   return true;

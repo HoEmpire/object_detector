@@ -533,7 +533,7 @@ void undistortImage(const cv::Mat image_distorted, cv::Mat &image_undistorted)
   }
 }
 
-void transformMarkerCoordinate(visualization_msgs::Marker &marker, float roll, float pitch, float yaw)
+void transformMarkerCoordinate(const visualization_msgs::Marker marker, float roll, float pitch, float yaw, visualization_msgs::Marker &marker_boat_frame)
 {
   AngleAxisf rollAngle(AngleAxisf(roll / 180 * M_PI, Vector3f::UnitX()));
   AngleAxisf pitchAngle(AngleAxisf(pitch / 180 * M_PI, Vector3f::UnitY()));
@@ -543,7 +543,8 @@ void transformMarkerCoordinate(visualization_msgs::Marker &marker, float roll, f
   Vector3f p;
   p << marker.points[0].x, marker.points[0].y, marker.points[0].z;
   p = rotation_matrix * p;
-  marker.points[0].x = p(0);
-  marker.points[0].y = p(1);
-  marker.points[0].z = p(2);
+  marker_boat_frame = marker;
+  marker_boat_frame.points[0].x = p(0);
+  marker_boat_frame.points[0].y = p(1);
+  marker_boat_frame.points[0].z = p(2);
 }
