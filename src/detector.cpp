@@ -249,7 +249,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           adapter->publish(time, object_info.id, object_info.distance, object_info.angle,
                            object_info.type,
                            object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-                           object_info.color_reliability, object_info.lidar_box);
+                           object_info.color_reliability, object_info.lidar_box, !track_info.have_sent_scan_command);
         }
       }
 #endif
@@ -345,7 +345,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
             adapter->publish(time, object_info.id, object_info.distance, object_info.angle,
                              object_info.type,
                              object_info.type_reliability, object_info.target_pcl_num, object_info.color,
-                             object_info.color_reliability, object_info.lidar_box);
+                             object_info.color_reliability, object_info.lidar_box, !track_info.have_sent_scan_command);
 #endif
           }
         }
