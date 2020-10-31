@@ -7,6 +7,7 @@ detection:
   points_number_min: 10
   points_number_distance_coeff: 2.0
   mode: "lidar_first"
+  boat_pixel_height: 80
 
 filter:
   filter_pt_num: 30

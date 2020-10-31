@@ -259,7 +259,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     {
       for (const auto &result : results)
       {
-        if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == static_cast<int>(usfs::common::ObjectType::SHIP) || result.type == static_cast<int>(usfs::common::ObjectType::BUOY))
+        if (result.type == static_cast<int>(usfs::common::ObjectType::UNKNOWN) || result.type == static_cast<int>(usfs::common::ObjectType::SHIP) && result.bbox.height > config.boat_pixel_height || result.type == static_cast<int>(usfs::common::ObjectType::BUOY))
         {
           //draw result
           ROS_INFO_STREAM("type: " << result.type << " detected!");
@@ -307,6 +307,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
           else
           {
             ROS_INFO("Succeed in matching points with image object");
+            ROS_INFO_STREAM("Bbox size: x = " << result.bbox.width << ", y = " << result.bbox.height);
             visualization_msgs::Marker marker_boat_frame;
             transformMarkerCoordinate(markers[index], platform_roll, platform_pitch, platform_yaw, marker_boat_frame);
             marker_pub.publish(marker_boat_frame);
@@ -347,6 +348,7 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
                              object_info.type_reliability, object_info.target_pcl_num, object_info.color,
                              object_info.color_reliability, object_info.lidar_box, !track_info.have_sent_scan_command);
 #endif
+            markers.erase(markers.begin() + index); //remove the  point cloud that have been matched
           }
         }
       }

@@ -77,6 +77,7 @@ struct ConfigSetting
   float filter_distance_min, filter_distance_max;
   float cluster_tolerance, cluster_size_min, cluster_size_max;
   float points_number_max, points_number_min, points_number_distance_coeff;
+  int boat_pixel_height = 80;
 
   string lidar_topic, camera_topic;
   string cam_net_type = "YOLOV4_TINY";
@@ -114,6 +115,7 @@ struct ConfigSetting
     cout << "points_number_max: " << points_number_max << endl;
     cout << "points_number_min: " << points_number_min << endl;
     cout << "points_number_distance_coeff: " << points_number_distance_coeff << endl;
+    cout << "boat_pixel_height: " << boat_pixel_height << endl;
     cout << "lidar_topic: " << lidar_topic << endl;
     cout << "camera_topic: " << camera_topic << endl;
     cout << "cam_net_type: " << cam_net_type << endl;
@@ -234,6 +236,7 @@ void loadConfig(ros::NodeHandle n)
   n.getParam("/detection/points_number_max", config.points_number_max);
   n.getParam("/detection/points_number_min", config.points_number_min);
   n.getParam("/detection/points_number_distance_coeff", config.points_number_distance_coeff);
+  n.getParam("/detection/boat_pixel_height", config.boat_pixel_height);
 
   n.getParam("/filter/filter_pt_num", config.filter_pt_num);
   n.getParam("/filter/filter_std", config.filter_std);
