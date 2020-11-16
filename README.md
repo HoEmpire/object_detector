@@ -87,7 +87,7 @@
 
       $$距离系数=\frac{当前距离}{校准距离}$$
 
-      检测最小阈值与距离系数成二次关系，检测最大阈值与距离系数成线性关系，如 points_number_distance_coeff =100，points_number_max = 5000，points_number_min = 80， 则在 50m 处的聚类后点云数量为 320~10000 点可视为目标，400m 处的聚类后点云数量为 20~2500 点可视为目标
+      检测最小阈值与距离系数成二次关系，检测最大阈值与距离系数成线性关系，如 points_number_distance_coeff =100，points_number_max = 5000，points_number_min = 80， 则在 50m 处的聚类后点云数量为 320-10000 点可视为目标，400m 处的聚类后点云数量为 20-2500 点可视为目标
 
       ```yaml
       detection:
@@ -152,11 +152,28 @@
 
 5.  云台调试相关
 
-    打开 GUI 调试界面
+    1. 打开 GUI 调试界面
 
-    ```
-    cd /home/nvidia/SimpleBGC_GUI_2_70b0
-    sudo ./run.sh
-    ```
+       ```
+       cd /home/nvidia/SimpleBGC_GUI_2_70b0
+       sudo ./run.sh
+       ```
 
-    具体调试方法见[platform_driver](https://github.com/HoEmpire/platform-driver)的`README.md`
+    2. PID 调整
+
+       1. 点击左上角的 connect 连接云台（需要先停止代码，详见 2. 手动调试中关闭开机自启动 service 的部分）
+       <div align=center><img width="720" height="540" src="img/start.png"/></div>
+
+       2. 在下面的窗口内调整各轴的 PID
+       <div align=center><img width="720" height="540" src="img/PID.png"/></div>
+
+       3. 调好后点击右下角的 write 写入
+
+       4. 可进入 Monitoring 监视调试效果，主要监视 `ERROR_ROLL`, `ERROR_PITCH`, `ERROR_YAW`
+       <div align=center><img width="720" height="540" src="img/Monitor.png"/></div>
+
+       **PID 调试常见注意事项**
+
+       - 出现高频震荡，则减小该轴的 D
+       - yaw 轴为了能顺滑运动，建议调整得到的曲线没有超调后者超调较小，通过减小 P 值和 I 值来保证
+       - 如需完整调试 PID 参数参见[官方文档](https://www.basecamelectronics.com/files/v3/SimpleBGC_32bit_manual_2_6x_chn.pdf)10-11 页
