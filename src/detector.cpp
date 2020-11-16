@@ -3,10 +3,11 @@
 #include <image_transport/image_transport.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CompressedImage.h>
 
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/image_encodings.h>
-// #include <sensor_msgs/Compress.h>
+
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/UInt16.h>
@@ -29,7 +30,7 @@
 #include "usfs_common/frame/object_type.h"
 #include "usfs_common/InsSensorData.h"
 
-#define DEFINE_WAMP 1
+#define DEFINE_WAMP 0
 
 #include "usfs_example/lidar_camera_adapter.h"
 #include "usfs_bridge/driver/ins_driver.h"
@@ -41,7 +42,11 @@ class LCDetector
 {
 public:
   LCDetector(ros::NodeHandle *nh);
+#if DEFINE_WAMP
   void detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img);
+#else
+  void detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::CompressedImageConstPtr &msg_img);
+#endif
   void platform_callback(const std_msgs::Float32MultiArray &rotation);
   void ins_callback(const usfs_common::InsSensorData &msg);
   bool WampMsgCallback(wampsdk::wsession &ws, const std::string &topic,
@@ -60,7 +65,11 @@ private:
   ros::Subscriber platform_yaw_sub;
   ros::Subscriber ins_sub;
   message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub;
+#if DEFINE_WAMP
   message_filters::Subscriber<sensor_msgs::Image> camera_sub;
+#else
+  message_filters::Subscriber<sensor_msgs::CompressedImage> camera_sub;
+#endif
 
   ros::Publisher pcl_filter_debug;
   ros::Publisher cam_detection_debug;
@@ -103,7 +112,11 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   cloud_sub.subscribe(*nh_, config.lidar_topic, 1);
   camera_sub.subscribe(*nh_, config.camera_topic, 1);
 
+#if DEFINE_WAMP
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, sensor_msgs::Image> MySyncPolicy;
+#else
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, sensor_msgs::CompressedImage> MySyncPolicy;
+#endif
   message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), cloud_sub, camera_sub);
   sync.registerCallback(boost::bind(&LCDetector::detection_callback, this, _1, _2));
 
@@ -137,7 +150,11 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
   }
 }
 
+#if DEFINE_WAMP
 void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img)
+#else
+void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::CompressedImageConstPtr &msg_img)
+#endif
 {
   // ROS_INFO("into callback");
 
