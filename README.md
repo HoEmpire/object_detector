@@ -169,7 +169,7 @@
 
        3. 调好后点击右下角的 write 写入
 
-       4. 可进入 Monitoring 监视调试效果，主要监视 `ERROR_ROLL`, `ERROR_PITCH`, `ERROR_YAW`
+       4. 可进入 Monitoring 监视调试效果，主要监视 `ERROR_ROLL`, `ERROR_PITCH`, `ERROR_YAW`，监视方法为电机左下角`MOTOR ON/OFF`上电后断电
        <div align=center><img width="720" height="540" src="img/Monitor.png"/></div>
 
        **PID 调试常见注意事项**
