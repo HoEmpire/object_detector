@@ -262,9 +262,9 @@ void loadConfig(ros::NodeHandle n)
   vector<float> rotation;
   n.getParam("/extrinsic_parameter/translation", translation);
   n.getParam("/extrinsic_parameter/rotation", rotation);
-  AngleAxisf rollAngle(AngleAxisf(rotation[0], Vector3f::UnitX()));
-  AngleAxisf pitchAngle(AngleAxisf(rotation[1], Vector3f::UnitY()));
-  AngleAxisf yawAngle(AngleAxisf(rotation[2], Vector3f::UnitZ()));
+  AngleAxisf rollAngle(AngleAxisf(rotation[0] / 180 * M_PI, Vector3f::UnitX()));
+  AngleAxisf pitchAngle(AngleAxisf(rotation[1] / 180 * M_PI, Vector3f::UnitY()));
+  AngleAxisf yawAngle(AngleAxisf(rotation[2] / 180 * M_PI, Vector3f::UnitZ()));
   Matrix3f rotation_matrix;
   rotation_matrix = yawAngle * pitchAngle * rollAngle;
   config.extrinsic_offset.topLeftCorner(3, 3) = rotation_matrix;
