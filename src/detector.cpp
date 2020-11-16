@@ -3,8 +3,10 @@
 #include <image_transport/image_transport.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
+
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/image_encodings.h>
+// #include <sensor_msgs/Compress.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/UInt16.h>
@@ -16,9 +18,11 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
+#include <tf/transform_broadcaster.h>
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/point_cloud.h>
+#include <pcl/common/transforms.h>
 
 #include "object_detector/util.h"
 #include <platform_driver/command.h>
@@ -136,6 +140,7 @@ LCDetector::LCDetector(ros::NodeHandle *nh)
 void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_pc, const sensor_msgs::ImageConstPtr &msg_img)
 {
   // ROS_INFO("into callback");
+
   int id = 0;
   timer a;
   a.tic();
@@ -188,8 +193,15 @@ void LCDetector::detection_callback(const sensor_msgs::PointCloud2ConstPtr &msg_
     a.tic();
     pointCloudClustering(point_cloud_livox, points_count, markers, lidar_box, pc_filtered);
     // ROS_INFO_STREAM("Filtering and Clustering takes " << a.toc() << " seconds");
-    pc_filtered.header.frame_id = "livox_frame";
-    pcl_filter_debug.publish(pc_filtered);
+
+    pcl::PointCloud<pcl::PointXYZI> pc_filtered_boat_frame;
+
+    Eigen::Affine3f T = Eigen::Affine3f::Identity();
+    T.rotate(Eigen::AngleAxisf(platform_yaw / 180 * M_PI, Eigen::Vector3f::UnitZ()));
+    pcl::transformPointCloud(pc_filtered, pc_filtered_boat_frame, T);
+
+    pc_filtered_boat_frame.header.frame_id = "livox_frame";
+    pcl_filter_debug.publish(pc_filtered_boat_frame);
 
     for (uint i = 0; i < points_count.size(); i++)
     {
@@ -362,6 +374,13 @@ void LCDetector::platform_callback(const std_msgs::Float32MultiArray &rotation)
   platform_roll = rotation.data[0];
   platform_pitch = rotation.data[1];
   platform_yaw = rotation.data[2];
+  static tf::TransformBroadcaster br;
+  tf::Transform transform_world, transform_lidar;
+  transform_world.setOrigin(tf::Vector3(0.0, 0.0, 0.0));
+  tf::Quaternion q_world, q_lidar;
+  q_world.setRPY(0, 0, 0);
+  transform_world.setRotation(q_world);
+  br.sendTransform(tf::StampedTransform(transform_world, ros::Time::now(), "world", "livox_frame"));
 }
 
 void LCDetector::ins_callback(const usfs_common::InsSensorData &msg)

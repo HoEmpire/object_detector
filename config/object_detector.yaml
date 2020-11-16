@@ -1,29 +1,29 @@
 data_topic:
   lidar_topic: /livox/lidar
-  camera_topic: /pointgrey/image_color
+  camera_topic: /pointgrey/image_color/compressed
 
 detection:
   points_number_max: 5000
-  points_number_min: 10
-  points_number_distance_coeff: 2.0
+  points_number_min: 9
+  points_number_distance_coeff: 300.0
   mode: "lidar_first"
   boat_pixel_height: 80
 
 filter:
-  filter_pt_num: 30
-  filter_std: 0.3
-  filter_distance_max: 6.0
-  filter_distance_min: 1.0
+  filter_pt_num: 1
+  filter_std: 10.0
+  filter_distance_max: 600.0
+  filter_distance_min: 100.0
 
 cluster:
-  cluster_tolerance: 0.1
-  cluster_size_min: 10
+  cluster_tolerance: 2.0
+  cluster_size_min: 5
   cluster_size_max: 5000
 
 cam:
   cam_net_type: "YOLOV4_TINY"
-  cam_file_model_cfg: "/asset/yolov4-tiny.cfg"
-  cam_file_model_weights: "/asset/yolov4-tiny.weights"
+  cam_file_model_cfg: "/asset/yolov4-tiny-usv.cfg"
+  cam_file_model_weights: "/asset/yolov4-tiny-usv_best.weights"
   cam_inference_precison: "FP32"
   cam_n_max_batch: 1
   cam_prob_threshold: 0.5

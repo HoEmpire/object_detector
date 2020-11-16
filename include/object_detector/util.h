@@ -429,7 +429,7 @@ void pointCloudClustering(pcl::PointCloud<pcl::PointXYZI> point_cloud, vector<in
   markers.resize(cloud_clustered.size());
   for (uint i = 0; i < cloud_clustered.size(); i++)
   {
-    markers[i].header.frame_id = "/livox_frame";
+    markers[i].header.frame_id = "world";
     markers[i].header.stamp = ros::Time::now();
     markers[i].ns = "points_and_lines";
     markers[i].action = visualization_msgs::Marker::ADD;
