@@ -58,3 +58,5 @@ function ransac_data_best = ransac(data, th,iter_num)
     end
     ransac_data_best = ransac_data_best';
 end
+
+result = mean(ransac_data_best)
